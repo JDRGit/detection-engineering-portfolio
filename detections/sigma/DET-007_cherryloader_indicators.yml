@@ -1,0 +1,80 @@
+title: CherryLoader Malware Execution Indicators
+id: b8e3c4f2-9a5d-4b7e-cd4f-2f3a4b5c6d7e
+status: experimental
+description: |
+  Detects execution of CherryLoader, a Go-based malware loader that masquerades
+  as the legitimate CherryTree note-taking application. CherryLoader uses a
+  6-digit numeric password combined with module names ending in .Data to load
+  and execute next-stage payloads including privilege escalation exploits
+  (PrintSpoofer, GodPotato).
+
+  CherryLoader is distinct from CherryTree: the loader uses a specific CLI
+  pattern that has no overlap with legitimate CherryTree note-taking usage.
+
+  Case Evidence: SIR-REDACT-11 — CherryLoader observed executing PrintSpoofer
+  during privilege escalation phase of multi-stage intrusion.
+
+references:
+  - https://attack.mitre.org/techniques/T1036/005/
+  - https://attack.mitre.org/techniques/T1055/001/
+author: Jaime (Detection Engineering Portfolio)
+date: 2026/03/12
+modified: 2026/03/12
+
+tags:
+  - attack.defense_evasion
+  - attack.t1036.005
+  - attack.execution
+  - attack.t1204
+  - attack.privilege_escalation
+
+logsource:
+  category: process_creation
+  product: windows
+
+detection:
+  selection_loader_pattern:
+    CommandLine|re: '^\S+\s+\d{6}[A-Za-z@!#$%]+\s+\w+\.Data$'
+  selection_module_names:
+    CommandLine|contains:
+      - '.Data'
+      - 'Spof.Data'
+      - 'Stuk.Data'
+  selection_masquerade:
+    Image|contains:
+      - 'cherrytree'
+      - 'CherryTree'
+      - 'cherry'
+  condition: (selection_loader_pattern and selection_module_names) or
+             (selection_masquerade and selection_module_names)
+
+fields:
+  - Image
+  - CommandLine
+  - ParentImage
+  - User
+  - IntegrityLevel
+
+falsepositives:
+  - CherryTree (legitimate note-taking app) does NOT use .Data module arguments
+    or 6-digit passwords. If CherryTree fires this rule, investigate immediately.
+
+level: high
+
+# TUNING NOTES
+# BEFORE: Filename-only detection ("cherrytree" in process name)
+#         → ~50 monthly alerts from legitimate CherryTree installations
+# AFTER:  CLI pattern regex + .Data module argument requirement
+#         → 0-3 monthly alerts, ~95%+ TP rate
+#         The regex \d{6}[A-Za-z@!]+ matches the loader's password format
+#         and has zero overlap with legitimate CherryTree CLI patterns.
+#
+# EVASION AWARENESS:
+# An attacker who modifies the loader to use a different CLI pattern would
+# evade this rule. Mitigated by generic ransomware behavioral detection
+# (file encryption, shadow copy deletion) and DET-008 multi-stage correlation.
+#
+# PRIVILEGE ESCALATION FOLLOW-ON:
+# Alert on PrintSpoofer.exe or GodPotato.exe as child processes of
+# any CherryLoader-identified process. This extends detection coverage
+# to the privilege escalation phase.

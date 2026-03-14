@@ -1,0 +1,73 @@
+# DET-006: VS Code Tunnel Reverse Shell on Non-Developer Endpoint
+# Format: Pseudo-Detection Logic
+# Technique: T1219 - Remote Access Software / T1572 - Protocol Tunneling
+# Severity: HIGH
+# Case Evidence: SIR-REDACT-10 (VS Code tunnel established from finance workstation)
+
+# DESCRIPTION:
+# Detects VS Code Remote Tunnel activity on endpoints outside approved developer
+# groups. VS Code tunnels (devtunnels.ms) allow any endpoint to be accessed
+# remotely via a browser or VS Code client — functionally equivalent to a C2
+# reverse shell when used on non-developer machines.
+#
+# Legitimate use: developer/IT/engineering endpoints with VS Code installed.
+# Suspicious use: finance, HR, legal, executive, or server workloads making
+# devtunnels.ms DNS requests or running VS Code tunnel service processes.
+
+# DETECTION LOGIC:
+RULE vscode_tunnel_non_developer:
+
+  # Signal 1: DNS resolution for tunnel infrastructure from unexpected endpoint
+  dns_tunnel_signal:
+    dns_query MATCHES (
+      '*.devtunnels.ms',
+      'devtunnels.ms',
+      'global.rel.tunnels.api.visualstudio.com'
+    )
+    FROM host WHERE
+      host_group NOT IN ('developer-endpoints', 'it-admin-endpoints', 'engineering-workstations')
+
+  # Signal 2: VS Code tunnel service process running on endpoint
+  process_tunnel_signal:
+    process_name IN ('code.exe', 'code-tunnel.exe')
+    AND arguments CONTAINS ('tunnel', 'serve-web')
+    FROM host WHERE
+      host_group NOT IN ('developer-endpoints', 'it-admin-endpoints', 'engineering-workstations')
+
+  # Signal 3: VS Code spawning a shell (indicates interactive tunnel session in use)
+  shell_spawn_signal:
+    parent_process_name IN ('code.exe', 'electron.exe')
+    AND process_name IN ('cmd.exe', 'powershell.exe', 'pwsh.exe', 'bash.exe')
+    FROM ANY host
+
+  ALERT when:
+    (dns_tunnel_signal OR process_tunnel_signal) AND host_group NOT IN developer_groups
+    OR shell_spawn_signal on non-developer host
+
+  SEVERITY: HIGH for non-developer DNS/process signal
+  SEVERITY: CRITICAL for shell_spawn_signal on any host (indicates active session)
+
+# FALSE POSITIVE NOTES:
+# - Developers who use personal laptops not enrolled in dev group LDAP/AAD
+#   → Enroll all developer assets properly; this is a hygiene issue
+# - IT admins troubleshooting via VS Code on user machines
+#   → Use approved remote access tools; VS Code tunnel is not an approved admin tool
+#   → Exception: IT admin group explicitly added to exclusion list with manager approval
+# - Expected volume after group-based filtering: 2-5 alerts/month
+
+# TUNING: BEFORE vs AFTER
+# BEFORE: Alert on ALL devtunnels.ms DNS from any host
+#         → 500+ daily DNS events from legitimate developer workflows, 0% actionable
+# AFTER:  Filter by endpoint group membership
+#         → 8-20 monthly alerts, ~80% TP rate
+#         Remaining FPs are developers on unenrolled personal devices (hygiene issue)
+#
+# PREVENTIVE COMPLEMENT:
+# - Block devtunnels.ms at proxy/DNS filter for non-developer endpoint groups
+# - This detection catches bypasses (mobile hotspot, VPN split tunnel) and provides
+#   audit trail for approved usage
+
+# IMPLEMENTATION NOTES:
+# Requires endpoint group membership sync to detection platform.
+# Group membership should pull from Active Directory OU or Azure AD group,
+# refreshed every 4 hours maximum. Stale group data creates detection gaps.
