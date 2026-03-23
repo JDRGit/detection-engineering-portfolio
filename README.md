@@ -1,6 +1,6 @@
 # Detection Engineering & AI Risk Program Portfolio
 
-An evidence-based detection engineering portfolio built from operational findings observed during a four-month MDR service evaluation (September 2025 – January 2026). It maps 26 MITRE ATT&CK techniques to real security incidents, documents what was detected, what was missed, and what was built to close the gaps.
+An evidence-based detection engineering portfolio built from operational findings observed during a four-month MDR service evaluation. It maps 26 MITRE ATT&CK techniques to real security incidents, documents what was detected, what was missed, and what was built to close the gaps.
 
 The portfolio covers five areas: ATT&CK-aligned coverage assessment, detection authoring across multiple formats, proactive threat hunting, alert tuning and false-positive reduction, and emerging risk coverage for cloud identity and local AI.
 
