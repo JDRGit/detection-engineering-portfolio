@@ -1,0 +1,107 @@
+# DET-008: Multi-Stage Kill Chain Correlation
+# Format: Pseudo-Detection Logic
+# Technique: Multiple (T1003, T1055, T1574, T1547, T1036, T1564, T1059, T1204)
+# Severity: CRITICAL (4/4 stages) / HIGH (3/4 stages)
+# Case Evidence: Multi-Stage Activity on SRV-APP-0291FKL (85 events, 173 entities)
+
+# DESCRIPTION:
+# Correlates multiple kill chain stages on a single endpoint within 24 hours.
+# Inspired by Taegis Tactic Graphs detector which identified multi-stage activity
+# spanning execution, persistence, evasion, and credential access.
+#
+# The case on SRV-APP-0291FKL involved:
+# - T1003.001 (LSASS Memory), T1036.005 (Masquerading), T1055.001 (DLL Injection)
+# - T1068 (Exploitation), T1562.001 (Disable Security Tools)
+# - T1564.003 (Hidden Window), T1574.001 (DLL Search Order Hijacking)
+# - T1547.009 (Shortcut Modification), T1558.003 (Kerberoasting)
+# And many more — 85 events across the full kill chain.
+
+# DETECTION LOGIC:
+CORRELATION RULE:
+  WINDOW: 24 hours
+  GROUP BY: host_id
+
+  stage_1_execution:
+    technique IN (
+      'T1059',      # Command and Scripting Interpreter
+      'T1059.001',  # PowerShell
+      'T1204',      # User Execution
+      'T1218.005'   # Mshta
+    )
+
+  stage_2_persistence:
+    technique IN (
+      'T1547',      # Boot or Logon Autostart Execution
+      'T1547.001',  # Registry Run Keys
+      'T1547.009',  # Shortcut Modification
+      'T1574.001',  # DLL Search Order Hijacking
+      'T1546'       # Event Triggered Execution
+    )
+
+  stage_3_evasion:
+    technique IN (
+      'T1055',      # Process Injection
+      'T1055.001',  # DLL Injection
+      'T1564.003',  # Hidden Window
+      'T1036.005',  # Match Legitimate Name
+      'T1562.001',  # Disable Security Tools
+      'T1027',      # Obfuscated Files
+      'T1140'       # Deobfuscate/Decode
+    )
+
+  stage_4_credential_access:
+    technique IN (
+      'T1003',      # OS Credential Dumping
+      'T1003.001',  # LSASS Memory
+      'T1555',      # Credentials from Password Stores
+      'T1552',      # Unsecured Credentials
+      'T1558',      # Steal or Forge Kerberos Tickets
+      'T1528'       # Steal Application Access Token
+    )
+
+  MINIMUM: 3 of 4 stages matched
+  
+  SEVERITY:
+    CRITICAL when 4/4 stages matched
+    HIGH when 3/4 stages matched
+
+ACTION:
+  # Immediate response for CRITICAL (4/4)
+  IF severity == CRITICAL:
+    AUTO_ESCALATE to Security Incident (SIR)
+    COLLECT memory_dump, process_tree, network_connections
+    ISOLATE endpoint (pending analyst confirmation)
+    NOTIFY soc_lead, incident_commander
+
+  # Investigation for HIGH (3/4)
+  IF severity == HIGH:
+    AUTO_ESCALATE to Security Incident (SIR)
+    COLLECT process_tree, network_connections
+    ENRICH with recent authentication events for affected users
+    NOTIFY soc_analyst
+
+# FALSE POSITIVE NOTES:
+# Very low FP rate due to multi-stage requirement.
+# Security assessment tools (Cobalt Strike, Metasploit) during approved
+# pen testing may trigger. Whitelist by source tool/user during approved
+# testing windows ONLY — never create permanent exclusions.
+
+# TUNING: BEFORE vs AFTER
+# BEFORE: Individual technique detections generated high volume.
+#         Correlated view did not exist — analysts manually connected
+#         dots across separate alerts, often missing the full picture.
+# AFTER:  Automated correlation surfaces complete attack narratives.
+#         Expected volume: 1-3 per month, ALL critical investigations.
+#
+# KEY INSIGHT:
+# The original Taegis Tactic Graphs detector that inspired this rule
+# identified 85 events across 173 entities on a single host. Without
+# correlation, these would have been 85 individual alerts across multiple
+# severity levels, likely buried in noise. The correlated view immediately
+# surfaces the host as compromised.
+
+# IMPLEMENTATION NOTES:
+# - Requires technique tagging on all underlying detections
+# - Consider adding stage_5_lateral_movement and stage_6_exfiltration
+# - Time window (24h) balances detection of slow attacks vs. FP rate
+# - For faster attacks, consider a second rule with 4h window and 2/4 threshold

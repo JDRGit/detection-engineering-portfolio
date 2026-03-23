@@ -1,0 +1,48 @@
+# DET-001: AADInternals Token Theft via PowerShell
+# Format: Next-Gen SIEM Query
+# Technique: T1528 - Steal Application Access Token
+# Severity: CRITICAL
+# Case Evidence: SIR-XXXX-04 (AADInternals PTA on WKS-ENT-0847TQR)
+
+# DESCRIPTION:
+# Detects execution of AADInternals PowerShell modules associated with Azure AD
+# token retrieval, reconnaissance, and authentication bypass. Script block logging
+# captures the full command even when invoked via encoded or obfuscated wrappers.
+#
+# AADInternals is a comprehensive toolkit for Azure AD/Entra ID manipulation.
+# Kill chain functions (token theft, device joining, PRT generation) represent
+# high-confidence indicators of compromise or unauthorized identity operations.
+
+# DETECTION LOGIC:
+FROM process WHERE
+  event_type = 'scriptBlock'
+  AND (
+    scriptblock_text ILIKE '%Get-AADIntAccessTokenForPTA%'
+    OR scriptblock_text ILIKE '%Get-AADIntAccessTokenForEXO%'
+    OR scriptblock_text ILIKE '%Get-AADIntAccessTokenForAADJoin%'
+    OR scriptblock_text ILIKE '%Export-AADIntAzureADSignInLogs%'
+    OR scriptblock_text ILIKE '%Invoke-AADIntReconAsOutsider%'
+    OR scriptblock_text ILIKE '%Join-AADIntDeviceToAzureAD%'
+    OR scriptblock_text ILIKE '%Get-AADIntPRT%'
+    OR scriptblock_text ILIKE '%Install-AADIntPassThroughAuthentication%'
+  )
+CORRELATE host_id WITHIN 15m
+SEVERITY CRITICAL
+
+# FALSE POSITIVE NOTES:
+# - May fire for authorized identity team members conducting Azure AD assessments
+# - Suppress by user SID for approved change windows ONLY
+# - Do NOT create permanent exclusions — AADInternals on any endpoint warrants review
+
+# TUNING: BEFORE vs AFTER
+# BEFORE: Alert on any script block containing 'AADInternals'
+#         → 800+ monthly alerts due to module import statements in profile scripts
+# AFTER:  Refined to specific kill chain functions (Get-AADIntAccessToken*,
+#         Invoke-AADIntRecon*, Join-AADIntDevice*, Get-AADIntPRT*)
+#         → 5-12 monthly alerts, all requiring investigation
+#
+# RECOMMENDED RESPONSE:
+# 1. Verify if user is authorized identity team member
+# 2. Check for approved change ticket covering the activity window
+# 3. If unauthorized: immediately disable account, revoke tokens, audit all
+#    Azure AD changes made during the session

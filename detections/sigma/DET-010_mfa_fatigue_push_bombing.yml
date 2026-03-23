@@ -1,0 +1,87 @@
+title: MFA Fatigue - High Frequency Push Notification Bombing
+id: d9f4e5a3-bc6e-4c8f-de5a-3a4b5c6d7e8f
+status: experimental
+description: |
+  Detects MFA push notification bombing (fatigue attack) where an adversary
+  with a valid stolen password triggers repeated MFA prompts hoping the
+  legitimate user will approve one to stop the notifications.
+
+  This technique has been used in high-profile breaches (Uber 2022, Okta 2022,
+  MGM 2023) and remains effective against push-based MFA implementations
+  that do not enforce number matching or context awareness.
+
+  Grounded in MDR evaluation: impossible travel cases (SIR-REDACT-02 through
+  SIR-REDACT-05) were preceded by MFA push attempts not captured by existing
+  detections. This rule addresses that gap.
+
+references:
+  - https://attack.mitre.org/techniques/T1621/
+  - https://attack.mitre.org/techniques/T1078/
+author: Jaime (Detection Engineering Portfolio)
+date: 2026/03/12
+modified: 2026/03/12
+
+tags:
+  - attack.credential_access
+  - attack.t1621
+  - attack.initial_access
+  - attack.t1078
+
+logsource:
+  product: azure
+  service: signinlogs
+
+detection:
+  selection_mfa_required:
+    ResultType:
+      - 50074   # Strong auth required
+      - 50076   # Strong auth required (interactive)
+      - 50079   # Strong auth enrollment required
+      - 53003   # Blocked by Conditional Access
+    AuthenticationRequirement: 'multiFactorAuthentication'
+  timeframe: 10m
+  condition: selection_mfa_required | count() by UserPrincipalName > 5
+  filter_expected:
+    # Exclude known MFA enrollment flows and IT-managed bulk operations
+    AppDisplayName|contains:
+      - 'Microsoft Intune'
+      - 'Microsoft Endpoint Manager'
+
+fields:
+  - UserPrincipalName
+  - IPAddress
+  - AppDisplayName
+  - ResultType
+  - ConditionalAccessStatus
+  - DeviceDetail
+
+falsepositives:
+  - Users repeatedly attempting to sign in while troubleshooting authentication issues
+  - Automated integration tests hammering authentication endpoints
+  - Conditional Access misconfiguration creating authentication loops
+
+level: high
+
+# TUNING NOTES
+# BEFORE: No detection existed for MFA push frequency
+# AFTER:  Threshold of 5 MFA challenges in 10 minutes per user
+#         Expected: 1-3 weekly alerts
+#
+# THRESHOLD RATIONALE:
+# - Normal users rarely receive more than 2 MFA prompts in 10 minutes
+# - 5 attempts = deliberate, repeated authentication failures
+# - Lower threshold (3) increases FP rate from auth troubleshooting scenarios
+# - Higher threshold (8+) reduces detection sensitivity for slow bombing attacks
+#
+# RECOMMENDED ENRICHMENT:
+# - Correlate source IP with known bad actor infrastructure
+# - Check if source IP matches impossible travel pattern (DET-002)
+# - Review whether user responded to any push (successful MFA despite bombing)
+#
+# RECOMMENDED RESPONSE:
+# 1. Immediately notify user via out-of-band channel (phone call)
+# 2. Temporarily block user account pending investigation
+# 3. Identify source IP(s) and check for password spray patterns
+# 4. If user confirmed they did not initiate: assume password compromise
+# 5. Reset password + review all recent Azure AD activity for session tokens
+# 6. Evaluate enforcing number matching MFA if not already deployed

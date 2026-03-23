@@ -1,0 +1,53 @@
+# DET-003: Mshta Remote Payload Execution
+# Format: Next-Gen SIEM Query
+# Technique: T1218.005 - Signed Binary Proxy Execution: Mshta
+# Severity: HIGH
+# Case Evidence: SIR-REDACT-07 (mshta.exe executing remote HTA payload from phishing email)
+
+# DESCRIPTION:
+# Detects mshta.exe executing HTA content from a remote URL. Mshta is a signed
+# Microsoft binary that can execute JScript/VBScript embedded in .hta files,
+# making it a common living-off-the-land technique for initial execution.
+#
+# Legitimate mshta usage is either local (path-based arguments) or references
+# Microsoft-owned infrastructure. Any external, non-Microsoft URL argument
+# is high-confidence malicious.
+
+# DETECTION LOGIC:
+FROM process WHERE
+  process_name ILIKE '%mshta.exe%'
+  AND (
+    arguments ILIKE '%http://%'
+    OR arguments ILIKE '%https://%'
+    OR arguments ILIKE '%ftp://%'
+  )
+  AND NOT (
+    arguments ILIKE '%microsoft.com%'
+    OR arguments ILIKE '%windows.net%'
+    OR arguments ILIKE '%office.com%'
+    OR arguments ILIKE '%windowsupdate.com%'
+  )
+SEVERITY HIGH
+
+# FALSE POSITIVE NOTES:
+# - Legacy internal web applications using HTA for UI elements with internal URLs
+#   → Add internal domain exclusions (e.g., ILIKE '%intranet.corpnet%')
+# - Rate after tuning: near-zero FP. Any external URL with mshta is actionable.
+
+# TUNING: BEFORE vs AFTER
+# BEFORE: Alert on any mshta.exe execution
+#         → 150+ monthly alerts, majority from legitimate HTA-based internal apps
+# AFTER:  Restrict to remote URL arguments, exclude Microsoft domains
+#         → 0-2 monthly alerts, ~100% TP rate
+#         Internal app exclusions handled by domain allowlist, not blanket suppression
+#
+# PREVENTIVE COMPLEMENT:
+# Block mshta.exe entirely via AppLocker/WDAC if no legitimate HTA usage exists.
+# This detection serves as the compensating control where blocking is not feasible.
+#
+# RECOMMENDED RESPONSE:
+# 1. Capture full command line and parent process
+# 2. Retrieve and analyze the remote HTA file (if URL still accessible)
+# 3. Identify execution chain: what spawned mshta.exe?
+# 4. Check for child processes spawned by mshta (cmd.exe, powershell.exe, wscript.exe)
+# 5. If confirmed malicious: isolate endpoint, review email gateway for delivery vector

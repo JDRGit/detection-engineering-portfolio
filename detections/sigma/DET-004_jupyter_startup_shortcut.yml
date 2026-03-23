@@ -1,0 +1,64 @@
+title: Jupyter Notebook Startup Folder Persistence via Shortcut
+id: a3f7d2e1-8b4c-4a9f-bc3d-1e2f5a6b7c8d
+status: experimental
+description: |
+  Detects creation of .lnk shortcut files in Windows Startup folders where the
+  target references Jupyter, IPython, or Python interpreter paths. Adversaries
+  with access to a data science workstation may plant a malicious notebook or
+  startup script disguised as a Jupyter launcher to achieve persistence.
+
+  Case Evidence: SIR-REDACT-08 — shortcut modification observed on analyst workstation
+  during multi-stage intrusion. Shortcut target was replaced with PowerShell download
+  cradle while retaining the original Jupyter display icon.
+
+references:
+  - https://attack.mitre.org/techniques/T1547/009/
+  - https://jupyter-notebook.readthedocs.io/en/stable/security.html
+author: Jaime (Detection Engineering Portfolio)
+date: 2026/03/12
+modified: 2026/03/12
+
+tags:
+  - attack.persistence
+  - attack.t1547.009
+  - attack.t1547
+
+logsource:
+  category: file_event
+  product: windows
+
+detection:
+  selection_startup_path:
+    TargetFilename|contains:
+      - '\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\'
+      - '\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\'
+    TargetFilename|endswith: '.lnk'
+  selection_jupyter_reference:
+    Contents|contains:
+      - 'jupyter'
+      - 'ipython'
+      - 'notebook'
+  condition: selection_startup_path and selection_jupyter_reference
+
+fields:
+  - TargetFilename
+  - Contents
+  - ProcessName
+  - User
+
+falsepositives:
+  - Legitimate Jupyter Desktop shortcut installers creating startup entries
+  - Anaconda/conda environment installers
+
+level: medium
+
+# TUNING NOTES
+# BEFORE: N/A — new detection, no prior rule existed for this pattern
+# AFTER:  0-1 alerts/month expected. Startup folder .lnk creation is rare;
+#         combined with Jupyter reference string makes this highly specific.
+#
+# EVASION AWARENESS:
+# - Attacker who renames the shortcut to avoid "jupyter" in the contents
+#   would evade this specific rule but would be caught by a broader
+#   "unexpected startup folder modification" detection.
+# - Complement with: alert on ANY new .lnk in Startup not matching known baseline.
